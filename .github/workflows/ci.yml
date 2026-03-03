@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # merkl — no features
+          - name: merkl
+            pkg: merkl
+            args: --no-default-features
+          # merkl — sha2
+          - name: merkl / sha2
+            pkg: merkl
+            args: --no-default-features --features sha2
+          # merkl-redb — no features
+          - name: merkl-redb
+            pkg: merkl-redb
+            args: ""
+          # merkl-redb — sha2
+          - name: merkl-redb / sha2
+            pkg: merkl-redb
+            args: --features sha2
+          # merkl-redb — multi-thread
+          - name: merkl-redb / multi-thread
+            pkg: merkl-redb
+            args: --features multi-thread
+          # merkl-redb — sha2 + multi-thread
+          - name: merkl-redb / sha2 + multi-thread
+            pkg: merkl-redb
+            args: --features sha2,multi-thread
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy -p ${{ matrix.pkg }} ${{ matrix.args }}
+
+  bare-metal:
+    name: Bare-metal (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # core — no features
+          - name: merkl / thumbv7m-none-eabi
+            args: --no-default-features
+          # core — sha2 (sha2 crate is no_std-compatible)
+          - name: merkl / thumbv7m-none-eabi / sha2
+            args: --no-default-features --features sha2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi
+      - run: cargo check -p merkl ${{ matrix.args }} --target thumbv7m-none-eabi
+
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # merkl — no features
+          - name: merkl
+            pkg: merkl
+            args: --no-default-features
+          # merkl — sha2
+          - name: merkl / sha2
+            pkg: merkl
+            args: --no-default-features --features sha2
+          # merkl-redb — no features
+          - name: merkl-redb
+            pkg: merkl-redb
+            args: ""
+          # merkl-redb — sha2
+          - name: merkl-redb / sha2
+            pkg: merkl-redb
+            args: --features sha2
+          # merkl-redb — multi-thread
+          - name: merkl-redb / multi-thread
+            pkg: merkl-redb
+            args: --features multi-thread
+          # merkl-redb — sha2 + multi-thread
+          - name: merkl-redb / sha2 + multi-thread
+            pkg: merkl-redb
+            args: --features sha2,multi-thread
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p ${{ matrix.pkg }} ${{ matrix.args }}
