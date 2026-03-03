@@ -161,7 +161,11 @@ where
                 let parent = H::hash_pair(&new_left, &new_right);
                 self.backend.set(
                     &parent[..],
-                    &Node { left: new_left, right: new_right }.to_bytes(),
+                    &Node {
+                        left: new_left,
+                        right: new_right,
+                    }
+                    .to_bytes(),
                 )?;
                 Ok(parent)
             }
@@ -175,10 +179,18 @@ where
 
         let new_bit = get_bit(&new_leaf, level);
         let (left, right) = if new_bit != get_bit(&existing, level) {
-            if new_bit == 0 { (new_leaf, existing) } else { (existing, new_leaf) }
+            if new_bit == 0 {
+                (new_leaf, existing)
+            } else {
+                (existing, new_leaf)
+            }
         } else {
             let child = self.push_down(existing, new_leaf, level + 1)?;
-            if new_bit == 0 { (child, Hash::default()) } else { (Hash::default(), child) }
+            if new_bit == 0 {
+                (child, Hash::default())
+            } else {
+                (Hash::default(), child)
+            }
         };
 
         let parent = H::hash_pair(&left, &right);
