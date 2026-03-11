@@ -29,7 +29,7 @@ fn composite_key(ns: &str, key: &[u8]) -> Vec<u8> {
 
 /// A [`KvsBackend`] backed by a [`redb`] embedded database.
 ///
-/// The inner [`Database`] is held behind an [`Arc`] (or [`Rc`] on targets
+/// The inner [`Database`] is held behind an [`std::sync::Arc`] (or [`std::rc::Rc`] on targets
 /// without atomics), so cloning is cheap and all clones share the same
 /// on-disk store.
 ///

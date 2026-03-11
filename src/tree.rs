@@ -19,14 +19,13 @@ fn get_bit(key: &Hash, level: usize) -> u8 {
 
 /// A sparse Merkle tree whose nodes are stored in a [`KvsBackend`].
 ///
-/// Each leaf is addressed by a caller-supplied **key** (a [`Hash`]-sized value
+/// Each leaf is addressed by a caller-supplied **key** (a [`tyalias@Hash`]-sized value
 /// whose bits determine the path through the tree). The leaf's *content* is
 /// stored as `H::hash(leaf_data)` at the terminal node. A separate namespace
 /// `"{ns}-key"` in the backend holds a `leaf_hash → key` mapping so that
-/// [`push_down`][Self::push_down] can look up the traversal key for existing
-/// leaves when resolving collisions.
+/// its internal code can look up the traversal key for existing leaves when resolving collisions.
 ///
-/// An all-zero [`Hash`] marks an empty slot and serves as the canonical empty
+/// An all-zero [`tyalias@Hash`] marks an empty slot and serves as the canonical empty
 /// root — the caller is responsible for storing and threading the root hash
 /// between calls, which also allows working with sub-trees directly.
 ///
@@ -67,20 +66,34 @@ where
         &mut self.backend
     }
 
+    /// Returns the inner backend.
+    pub fn into_inner(self) -> B {
+        self.backend
+    }
+
     /// Insert a leaf into the tree identified by `root`, returning the new
     /// root hash.
     ///
-    /// Uses `H::hash(leaf_data)` as the traversal key. For a custom key use
-    /// [`Self::insert_keyed`].
+    /// Uses `H::hash(leaf_data)` as the traversal key.
     ///
-    /// Pass [`Hash::default`] as `root` for an empty tree.
+    /// Pass `Hash::default` as `root` for an empty tree.
     ///
     /// # Errors
     /// Returns an error only if two distinct keys share all 256 bits
     /// (a hash collision in `H`).
     pub fn insert(&self, ns: &str, root: Hash, leaf_data: impl AsRef<[u8]>) -> Result<Hash> {
-        let leaf = leaf_data.as_ref();
-        self.insert_keyed(ns, root, H::hash(leaf), leaf)
+        let leaf = H::hash(leaf_data.as_ref());
+        self.insert_leaf(ns, root, leaf)
+    }
+
+    /// Insert a leaf into the tree identified by `root`, returning the new
+    /// root hash.
+    ///
+    /// # Errors
+    /// Returns an error only if two distinct keys share all 256 bits
+    /// (a hash collision in `H`).
+    pub fn insert_leaf(&self, ns: &str, root: Hash, leaf: Hash) -> Result<Hash> {
+        self.insert_keyed(ns, root, leaf, leaf)
     }
 
     /// Insert a leaf into the tree identified by `root`, returning the new
@@ -89,7 +102,7 @@ where
     /// The traversal key is `H::hash(index.to_le_bytes())`, giving each
     /// integer index a stable, uniformly-distributed position in the tree.
     ///
-    /// Pass [`Hash::default`] as `root` for an empty tree.
+    /// Pass `Hash::default` as `root` for an empty tree.
     ///
     /// # Errors
     /// Returns an error only if two distinct indices hash to identical 256-bit
@@ -101,8 +114,30 @@ where
         index: &[u8],
         leaf_data: impl AsRef<[u8]>,
     ) -> Result<Hash> {
+        let leaf = H::hash(leaf_data.as_ref());
+        self.insert_indexed_leaf(ns, root, index, leaf)
+    }
+
+    /// Insert a leaf into the tree identified by `root`, returning the new
+    /// root hash.
+    ///
+    /// The traversal key is `H::hash(index.to_le_bytes())`, giving each
+    /// integer index a stable, uniformly-distributed position in the tree.
+    ///
+    /// Pass `Hash::default` as `root` for an empty tree.
+    ///
+    /// # Errors
+    /// Returns an error only if two distinct indices hash to identical 256-bit
+    /// keys (a collision in `H`).
+    pub fn insert_indexed_leaf(
+        &self,
+        ns: &str,
+        root: Hash,
+        index: &[u8],
+        leaf: Hash,
+    ) -> Result<Hash> {
         let key = Node::key_from_bytes(index)?;
-        self.insert_keyed(ns, root, key, leaf_data)
+        self.insert_keyed(ns, root, key, leaf)
     }
 
     /// Insert a leaf into the tree identified by `root`, returning the new
@@ -122,18 +157,11 @@ where
     /// # Errors
     /// Returns an error only if two distinct keys share all 256 bits
     /// (a hash collision in the key space).
-    fn insert_keyed(
-        &self,
-        ns: &str,
-        root: Hash,
-        key: Hash,
-        leaf_data: impl AsRef<[u8]>,
-    ) -> Result<Hash> {
-        let leaf_hash = H::hash(leaf_data.as_ref());
+    fn insert_keyed(&self, ns: &str, root: Hash, key: Hash, leaf: Hash) -> Result<Hash> {
         // Store the leaf→key mapping so push_down can resolve existing leaves.
         self.backend
-            .set(&format!("{ns}-key"), &leaf_hash[..], &key[..])?;
-        self.insert_at(ns, root, key, leaf_hash, 0)
+            .set(&format!("{ns}-key"), &leaf[..], &key[..])?;
+        self.insert_at(ns, root, key, leaf, 0)
     }
 
     /// Return `true` if `leaf_data` is stored at position `key` in the tree
@@ -147,7 +175,16 @@ where
         key: Hash,
         leaf_data: impl AsRef<[u8]>,
     ) -> Result<bool> {
-        Ok(self.get(ns, root, key)? == Some(H::hash(leaf_data.as_ref())))
+        let leaf = H::hash(leaf_data.as_ref());
+        self.contains_leaf(ns, root, key, leaf)
+    }
+
+    /// Return `true` if `leaf_data` is stored at position `key` in the tree
+    /// identified by `root`.
+    ///
+    /// Equivalent to `get(ns, root, key)? == Some(leaf)`.
+    pub fn contains_leaf(&self, ns: &str, root: Hash, key: Hash, leaf: Hash) -> Result<bool> {
+        Ok(self.get(ns, root, key)? == Some(leaf))
     }
 
     /// Return the terminal hash at the position identified by `key`, or
@@ -196,8 +233,18 @@ where
         root: Hash,
         leaf_data: impl AsRef<[u8]>,
     ) -> Result<MerkleOpening<H>> {
-        let key = H::hash(leaf_data.as_ref());
-        let siblings = self.collect_proof(ns, root, key)?;
+        let leaf = H::hash(leaf_data.as_ref());
+        self.get_opening_leaf(ns, root, leaf)
+    }
+
+    /// Build a Merkle opening proof for `leaf_data` in the tree identified by
+    /// `root`.
+    ///
+    /// The traversal key is `H::hash(leaf_data)`, matching [`Self::insert`].
+    /// Call [`MerkleOpening::leaf_root`] on the returned opening and compare
+    /// against `root` to verify membership.
+    pub fn get_opening_leaf(&self, ns: &str, root: Hash, leaf: Hash) -> Result<MerkleOpening<H>> {
+        let siblings = self.collect_proof(ns, root, leaf)?;
         Ok(MerkleOpening::new(siblings))
     }
 
@@ -213,9 +260,7 @@ where
         ns: &str,
         root: Hash,
         index: &[u8],
-        leaf_data: impl AsRef<[u8]>,
     ) -> Result<MerkleOpening<H>> {
-        let _ = leaf_data; // leaf hash is computed inside MerkleOpening::leaf_indexed_root
         let key = Node::key_from_bytes(index)?;
         let siblings = self.collect_proof(ns, root, key)?;
         Ok(MerkleOpening::new(siblings))
@@ -523,9 +568,11 @@ mod tests {
         };
 
         let root = tree
-            .insert_keyed("ns", Hash::default(), key_a, b"leaf-a")
+            .insert_keyed("ns", Hash::default(), key_a, Sha256Hasher::hash(b"leaf-a"))
             .unwrap();
-        let root = tree.insert_keyed("ns", root, key_b, b"leaf-b").unwrap();
+        let root = tree
+            .insert_keyed("ns", root, key_b, Sha256Hasher::hash(b"leaf-b"))
+            .unwrap();
 
         let ha = Sha256Hasher::hash(b"leaf-a");
         let hb = Sha256Hasher::hash(b"leaf-b");

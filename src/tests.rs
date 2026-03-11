@@ -323,7 +323,7 @@ fn get_indexed_opening_root_matches_tree_root() {
 
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree
-            .get_indexed_opening("ns", root, &i.to_le_bytes(), leaf)
+            .get_indexed_opening("ns", root, &i.to_le_bytes())
             .unwrap();
         assert_eq!(
             proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
@@ -339,9 +339,7 @@ fn get_indexed_opening_wrong_leaf_does_not_match_root() {
         .insert_indexed("ns", Hash::default(), &[], b"payload")
         .unwrap();
 
-    let proof = tree
-        .get_indexed_opening("ns", root, &[], b"payload")
-        .unwrap();
+    let proof = tree.get_indexed_opening("ns", root, &[]).unwrap();
     assert_ne!(
         proof.leaf_indexed_root(&[], b"wrong payload").unwrap(),
         root
@@ -377,7 +375,7 @@ fn non_membership_leaf_root_empty_tree() {
 fn non_membership_leaf_indexed_root_empty_tree() {
     let tree = simple_tree();
     let proof = tree
-        .get_indexed_opening("ns", Hash::default(), &[7], b"anything")
+        .get_indexed_opening("ns", Hash::default(), &[7])
         .unwrap();
     assert_eq!(
         proof.non_membership_leaf_indexed_root(&[7]).unwrap(),
@@ -415,7 +413,7 @@ fn non_membership_leaf_indexed_root_rejects_present_index() {
 
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree
-            .get_indexed_opening("ns", root, &i.to_le_bytes(), leaf)
+            .get_indexed_opening("ns", root, &i.to_le_bytes())
             .unwrap();
         assert_eq!(
             proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
@@ -449,7 +447,7 @@ fn non_membership_leaf_indexed_root_validates_empty_slot() {
 
     let absent = find_index_with_key_bit0(1, &[i, j]);
     let proof = tree
-        .get_indexed_opening("ns", root, &absent.to_le_bytes(), b"irrelevant")
+        .get_indexed_opening("ns", root, &absent.to_le_bytes())
         .unwrap();
 
     assert_eq!(
