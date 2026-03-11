@@ -1,6 +1,6 @@
 [package]
 name = "merkl"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 authors = ["Victor Lopez <vhrlopes@gmail.com>"]
 license = "MIT"
@@ -8,7 +8,7 @@ repository = "https://github.com/vlopes11/merkl"
 readme = "README.md"
 description = "MerkleTree, embedded friendly implementation."
 categories = ["data-structures", "no-std"]
-keywords = ["merkle", "redb"]
+keywords = ["merkle", "fjall", "redb"]
 
 [dependencies]
 anyhow = { version = "1.0", default-features = false }

@@ -1,5 +1,6 @@
 //! A data backend provider.
 
+use alloc::vec::Vec;
 use core::ops::Deref;
 
 /// Shared byte-slice pointer — [`Arc`][alloc::sync::Arc]`<[u8]>` on targets
@@ -56,4 +57,16 @@ pub trait KvsBackend {
 
     /// Store `value` under `key` in namespace `ns`.
     fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
+}
+
+impl KvsBackend for () {
+    type Get = Vec<u8>;
+
+    fn get(&self, _ns: &str, _key: &[u8]) -> anyhow::Result<Option<Self::Get>> {
+        Ok(None)
+    }
+
+    fn set(&self, _ns: &str, _key: &[u8], _value: &[u8]) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

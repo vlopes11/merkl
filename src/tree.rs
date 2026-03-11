@@ -43,6 +43,18 @@ pub struct MerkleTree<B, H> {
     _hasher: PhantomData<H>,
 }
 
+/// A dummy Merkle tree implementation with no hasher or backend.
+pub type MerkleTreeDummy = MerkleTree<(), ()>;
+
+impl Default for MerkleTreeDummy {
+    fn default() -> Self {
+        Self {
+            backend: (),
+            _hasher: PhantomData,
+        }
+    }
+}
+
 impl<B, H> MerkleTree<B, H>
 where
     B: KvsBackend,
@@ -221,6 +233,13 @@ where
         }
     }
 
+    /// Return the terminal hash at the position indexed by `index`, or
+    /// `None` if the path ends in an empty slot.
+    pub fn get_indexed(&self, ns: &str, root: Hash, index: &[u8]) -> Result<Option<Hash>> {
+        let key = Node::key_from_bytes(index)?;
+        self.get(ns, root, key)
+    }
+
     /// Build a Merkle opening proof for `leaf_data` in the tree identified by
     /// `root`.
     ///
@@ -379,6 +398,11 @@ where
         );
         let existing_key: Hash = existing_key_bytes[..].try_into().unwrap();
 
+        // Same key: the new leaf replaces the existing one (override).
+        if existing_key == new_key {
+            return Ok(new_leaf_hash);
+        }
+
         let new_bit = get_bit(&new_key, level);
         let (left, right) = if new_bit != get_bit(&existing_key, level) {
             if new_bit == 0 {
@@ -412,6 +436,7 @@ mod tests {
     use super::*;
     use crate::hash::{Hash, Hasher};
     use crate::memory::MemoryBackend;
+    use alloc::string::ToString;
     use sha2::{Digest, Sha256};
 
     struct Sha256Hasher;
@@ -546,6 +571,609 @@ mod tests {
 
         assert_ne!(proof_a.leaf_root(&b), root);
         assert_ne!(proof_b.leaf_root(&a), root);
+    }
+
+    #[test]
+    fn get_indexed_empty_tree_returns_none() {
+        let tree = new_tree();
+        assert_eq!(
+            tree.get_indexed("ns", Hash::default(), &0u64.to_le_bytes())
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn get_indexed_after_insert_indexed_returns_leaf_hash() {
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"first")
+            .unwrap();
+        let expected = Sha256Hasher::hash(b"first");
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn get_indexed_missing_index_not_contained() {
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"first")
+            .unwrap();
+        // get_indexed is a raw traversal and may return Some(other_leaf) when the
+        // path ends at a different leaf. Use contains_leaf to check membership.
+        let key1 = Node::key_from_bytes(&1u64.to_le_bytes()).unwrap();
+        assert!(
+            !tree
+                .contains_leaf("ns", root, key1, Sha256Hasher::hash(b"second"))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn get_indexed_multiple_indices_retrieve_correct_values() {
+        let tree = new_tree();
+        let root = (0u64..4).fold(Hash::default(), |r, i| {
+            let data = (i as u8).to_string();
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), data.as_bytes())
+                .unwrap()
+        });
+        for i in 0u64..4 {
+            let data = (i as u8).to_string();
+            let expected = Sha256Hasher::hash(data.as_bytes());
+            assert_eq!(
+                tree.get_indexed("ns", root, &i.to_le_bytes()).unwrap(),
+                Some(expected),
+                "index {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_indexed_historical_root_isolation() {
+        let tree = new_tree();
+        let root1 = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root2 = tree
+            .insert_indexed("ns", root1, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+
+        // Historical root1 does not contain index 1 — verified via contains_leaf
+        // because get_indexed is a raw traversal that may hit a different leaf.
+        let key1 = Node::key_from_bytes(&1u64.to_le_bytes()).unwrap();
+        assert!(
+            !tree
+                .contains_leaf("ns", root1, key1, Sha256Hasher::hash(b"b"))
+                .unwrap()
+        );
+        // Current root2 returns the correct leaf hash for both indices.
+        assert_eq!(
+            tree.get_indexed("ns", root2, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"a"))
+        );
+        assert_eq!(
+            tree.get_indexed("ns", root2, &1u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"b"))
+        );
+    }
+
+    #[test]
+    fn insert_indexed_same_index_overrides_leaf() {
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"first")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"second")
+            .unwrap();
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"second"))
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_does_not_affect_other_indices() {
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"a-updated")
+            .unwrap();
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"a-updated"))
+        );
+        assert_eq!(
+            tree.get_indexed("ns", root, &1u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"b"))
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_with_same_data_is_idempotent() {
+        // Re-inserting the same data at the same index must not change the root.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"value")
+            .unwrap();
+        let root2 = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"value")
+            .unwrap();
+        assert_eq!(root, root2);
+    }
+
+    #[test]
+    fn insert_indexed_override_changes_root() {
+        // Overriding with different data must produce a different root.
+        let tree = new_tree();
+        let root_before = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"old")
+            .unwrap();
+        let root_after = tree
+            .insert_indexed("ns", root_before, &0u64.to_le_bytes(), b"new")
+            .unwrap();
+        assert_ne!(root_before, root_after);
+    }
+
+    #[test]
+    fn insert_indexed_override_back_reverts_root() {
+        // Overriding A→B then B→A must restore the exact original root.
+        let tree = new_tree();
+        let root_a = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root_b = tree
+            .insert_indexed("ns", root_a, &0u64.to_le_bytes(), b"b")
+            .unwrap();
+        let root_reverted = tree
+            .insert_indexed("ns", root_b, &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        assert_eq!(root_a, root_reverted);
+    }
+
+    #[test]
+    fn insert_indexed_sequential_overrides_only_last_value_persists() {
+        // Override the same index five times; only the last value should be visible.
+        let tree = new_tree();
+        let values: &[&[u8]] = &[b"v0", b"v1", b"v2", b"v3", b"v4"];
+        let root = values
+            .iter()
+            .enumerate()
+            .fold(Hash::default(), |r, (i, v)| {
+                // index stays 0 for all iterations; data changes each time
+                let _ = i;
+                tree.insert_indexed("ns", r, &0u64.to_le_bytes(), v)
+                    .unwrap()
+            });
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"v4"))
+        );
+        for v in &values[..4] {
+            let key0 = Node::key_from_bytes(&0u64.to_le_bytes()).unwrap();
+            assert!(
+                !tree
+                    .contains_leaf("ns", root, key0, Sha256Hasher::hash(v))
+                    .unwrap(),
+                "stale value {:?} should not be contained",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn insert_indexed_historical_root_preserves_old_value_after_override() {
+        // root_old was computed before the override — it must still resolve to
+        // the original value, regardless of what happened afterwards.
+        let tree = new_tree();
+        let root_old = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"old")
+            .unwrap();
+        let root_new = tree
+            .insert_indexed("ns", root_old, &0u64.to_le_bytes(), b"new")
+            .unwrap();
+
+        assert_eq!(
+            tree.get_indexed("ns", root_old, &0u64.to_le_bytes())
+                .unwrap(),
+            Some(Sha256Hasher::hash(b"old")),
+            "historical root must still see old value"
+        );
+        assert_eq!(
+            tree.get_indexed("ns", root_new, &0u64.to_le_bytes())
+                .unwrap(),
+            Some(Sha256Hasher::hash(b"new")),
+            "new root must see updated value"
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_in_large_tree_leaves_others_intact() {
+        // Build a tree with 16 consecutive indices, override index 7,
+        // then verify every index still resolves correctly.
+        let tree = new_tree();
+        let n = 16u64;
+        let root = (0..n).fold(Hash::default(), |r, i| {
+            let data = alloc::format!("leaf-{i}");
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), data.as_bytes())
+                .unwrap()
+        });
+
+        let root = tree
+            .insert_indexed("ns", root, &7u64.to_le_bytes(), b"leaf-7-updated")
+            .unwrap();
+
+        for i in 0..n {
+            let expected = if i == 7 {
+                Sha256Hasher::hash(b"leaf-7-updated")
+            } else {
+                let data = alloc::format!("leaf-{i}");
+                Sha256Hasher::hash(data.as_bytes())
+            };
+            assert_eq!(
+                tree.get_indexed("ns", root, &i.to_le_bytes()).unwrap(),
+                Some(expected),
+                "wrong value at index {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn insert_indexed_override_old_value_not_contained_afterwards() {
+        // After an override the old value must not pass contains_leaf at
+        // that index's key.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"old")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"new")
+            .unwrap();
+
+        let key0 = Node::key_from_bytes(&0u64.to_le_bytes()).unwrap();
+        assert!(
+            !tree
+                .contains_leaf("ns", root, key0, Sha256Hasher::hash(b"old"))
+                .unwrap(),
+            "old value must not be contained after override"
+        );
+        assert!(
+            tree.contains_leaf("ns", root, key0, Sha256Hasher::hash(b"new"))
+                .unwrap(),
+            "new value must be contained after override"
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_of_collision_pair_member() {
+        // Indices 0 and 1 have keys that share a 7-bit prefix (both start with
+        // 0000_000x in MSB-first order).  Override index 0 after both are
+        // inserted; index 1 must be unaffected.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"a-new")
+            .unwrap();
+
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"a-new")),
+            "overridden index 0 must hold new value"
+        );
+        assert_eq!(
+            tree.get_indexed("ns", root, &1u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"b")),
+            "index 1 must be unchanged"
+        );
+
+        let key0 = Node::key_from_bytes(&0u64.to_le_bytes()).unwrap();
+        assert!(
+            !tree
+                .contains_leaf("ns", root, key0, Sha256Hasher::hash(b"a"))
+                .unwrap(),
+            "old value of index 0 must no longer be contained"
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_proof_valid_for_new_value() {
+        // get_indexed_opening must produce a valid proof for the new value
+        // after an override.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"old")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"other")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"new")
+            .unwrap();
+
+        let proof = tree
+            .get_indexed_opening("ns", root, &0u64.to_le_bytes())
+            .unwrap();
+        assert_eq!(
+            proof
+                .leaf_indexed_root(&0u64.to_le_bytes(), b"new")
+                .unwrap(),
+            root,
+            "proof must verify for new value"
+        );
+        assert_ne!(
+            proof
+                .leaf_indexed_root(&0u64.to_le_bytes(), b"old")
+                .unwrap(),
+            root,
+            "proof must not verify for old value"
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_proof_valid_for_sibling_unchanged() {
+        // After overriding index 0, the proof for index 1 must still be valid.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"a-new")
+            .unwrap();
+
+        let proof1 = tree
+            .get_indexed_opening("ns", root, &1u64.to_le_bytes())
+            .unwrap();
+        assert_eq!(
+            proof1.leaf_indexed_root(&1u64.to_le_bytes(), b"b").unwrap(),
+            root,
+            "sibling proof must still be valid after override"
+        );
+    }
+
+    #[test]
+    fn insert_indexed_override_then_insert_new_index() {
+        // After an override, inserting a brand-new index must still work
+        // and not disturb the overridden or older leaves.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"a-new")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+
+        assert_eq!(
+            tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"a-new"))
+        );
+        assert_eq!(
+            tree.get_indexed("ns", root, &1u64.to_le_bytes()).unwrap(),
+            Some(Sha256Hasher::hash(b"b"))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Combined get_indexed + contains_leaf cross-contamination tests
+    //
+    // These tests assert that for every *inserted* index, get_indexed returns
+    // exactly the hash of the data that was inserted at that index — never the
+    // hash produced by inserting different data, whether at another index or as
+    // a previous override at the same index.
+    //
+    // Note: for indices that were *never* inserted, get_indexed may return a
+    // hash that belongs to another leaf whose traversal path happens to share a
+    // prefix with the queried key.  That is a well-documented property of
+    // sparse Merkle trees and is tested separately at the bottom of this block.
+    // -----------------------------------------------------------------------
+
+    /// Helper: assert `get_indexed(root, i)` == Some(H::hash(data)) and
+    /// `contains_leaf(root, key_i, H::hash(data))` is true.
+    fn assert_indexed_contains(
+        tree: &MerkleTree<MemoryBackend, Sha256Hasher>,
+        root: Hash,
+        index: u64,
+        data: &[u8],
+    ) {
+        let expected = Sha256Hasher::hash(data);
+        assert_eq!(
+            tree.get_indexed("ns", root, &index.to_le_bytes()).unwrap(),
+            Some(expected),
+            "get_indexed mismatch at index {index}"
+        );
+        let key = Node::key_from_bytes(&index.to_le_bytes()).unwrap();
+        assert!(
+            tree.contains_leaf("ns", root, key, expected).unwrap(),
+            "contains_leaf false at index {index}"
+        );
+    }
+
+    /// Helper: assert `contains_leaf(root, key_i, H::hash(foreign_data))` is
+    /// false — the foreign leaf must not be reachable via key_i.
+    fn assert_not_contaminated(
+        tree: &MerkleTree<MemoryBackend, Sha256Hasher>,
+        root: Hash,
+        queried_index: u64,
+        foreign_data: &[u8],
+    ) {
+        let foreign_leaf = Sha256Hasher::hash(foreign_data);
+        let key = Node::key_from_bytes(&queried_index.to_le_bytes()).unwrap();
+        assert!(
+            !tree.contains_leaf("ns", root, key, foreign_leaf).unwrap(),
+            "index {queried_index} is contaminated with data {:?}",
+            foreign_data
+        );
+    }
+
+    #[test]
+    fn get_indexed_and_contains_leaf_agree_for_all_inserted_indices() {
+        // For N inserted indices, every get_indexed returns its own leaf hash
+        // and contains_leaf confirms it.
+        let tree = new_tree();
+        let n = 8u64;
+        let root = (0..n).fold(Hash::default(), |r, i| {
+            let data = alloc::format!("data-{i}");
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), data.as_bytes())
+                .unwrap()
+        });
+        for i in 0..n {
+            let data = alloc::format!("data-{i}");
+            assert_indexed_contains(&tree, root, i, data.as_bytes());
+        }
+    }
+
+    #[test]
+    fn contains_leaf_cross_index_never_true_for_foreign_data() {
+        // For every pair (i, j) with i != j, the data inserted at index j must
+        // not be reachable via index i's key.
+        let tree = new_tree();
+        let n = 8u64;
+        let root = (0..n).fold(Hash::default(), |r, i| {
+            let data = alloc::format!("data-{i}");
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), data.as_bytes())
+                .unwrap()
+        });
+        for i in 0..n {
+            for j in 0..n {
+                if i == j {
+                    continue;
+                }
+                let foreign = alloc::format!("data-{j}");
+                assert_not_contaminated(&tree, root, i, foreign.as_bytes());
+            }
+        }
+    }
+
+    #[test]
+    fn get_indexed_returns_own_data_for_collision_prefix_pair() {
+        // Indices 0 and 1 have keys that share a 7-bit prefix (bits 0-6 = 0,
+        // diverge only at bit 7).  Each must still return its own data.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"alpha")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"beta")
+            .unwrap();
+
+        assert_indexed_contains(&tree, root, 0, b"alpha");
+        assert_indexed_contains(&tree, root, 1, b"beta");
+        assert_not_contaminated(&tree, root, 0, b"beta");
+        assert_not_contaminated(&tree, root, 1, b"alpha");
+    }
+
+    #[test]
+    fn get_indexed_returns_own_data_after_override_no_cross_contamination() {
+        // After overriding index 0, get_indexed must return the new value and
+        // contains_leaf must confirm it; the old value and every other index's
+        // data must not be reachable via key_0.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"old")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &2u64.to_le_bytes(), b"c")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &0u64.to_le_bytes(), b"new")
+            .unwrap();
+
+        assert_indexed_contains(&tree, root, 0, b"new");
+        assert_not_contaminated(&tree, root, 0, b"old"); // old value gone
+        assert_not_contaminated(&tree, root, 0, b"b");
+        assert_not_contaminated(&tree, root, 0, b"c");
+
+        // Siblings are also unaffected.
+        assert_indexed_contains(&tree, root, 1, b"b");
+        assert_indexed_contains(&tree, root, 2, b"c");
+    }
+
+    #[test]
+    fn get_indexed_large_tree_no_cross_contamination() {
+        // Build a 16-leaf tree; for every (i, j) pair with i != j assert that
+        // the data at j is not reachable via i's key.
+        let tree = new_tree();
+        let n = 16u64;
+        let root = (0..n).fold(Hash::default(), |r, i| {
+            let data = alloc::format!("leaf-{i:03}");
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), data.as_bytes())
+                .unwrap()
+        });
+        for i in 0..n {
+            let own = alloc::format!("leaf-{i:03}");
+            assert_indexed_contains(&tree, root, i, own.as_bytes());
+            for j in 0..n {
+                if i == j {
+                    continue;
+                }
+                let foreign = alloc::format!("leaf-{j:03}");
+                assert_not_contaminated(&tree, root, i, foreign.as_bytes());
+            }
+        }
+    }
+
+    #[test]
+    fn get_indexed_uninserted_index_false_positive_documented() {
+        // This test documents the known sparse-Merkle-tree property:
+        // an *uninserted* index whose key shares a traversal path with an
+        // inserted leaf will return that leaf's hash from get_indexed.
+        //
+        // After inserting indices 0 ([0x00,0,...]) and 1 ([0x01,0,...]),
+        // the two keys diverge only at bit 7 (the LSB of byte 0).  Any
+        // uninserted index whose key also starts with byte 0x01 follows the
+        // exact same path and terminates at leaf_1.
+        //
+        // Index 257 has to_le_bytes() = [0x01, 0x01, 0, ...].  Its key shares
+        // all 8 bits of byte 0 with key_1, so traversal lands on leaf_1 even
+        // though index 257 was never inserted.
+        //
+        // NOTE: contains_leaf cannot distinguish this case — it performs the
+        // same traversal and returns true for both key_1 and key_257.  This is
+        // a well-documented limitation of sparse Merkle trees for uninserted
+        // positions.  The inserted indices (0 and 1) are always correct.
+        let tree = new_tree();
+        let root = tree
+            .insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"a")
+            .unwrap();
+        let root = tree
+            .insert_indexed("ns", root, &1u64.to_le_bytes(), b"b")
+            .unwrap();
+
+        let leaf_1 = Sha256Hasher::hash(b"b");
+
+        // Uninserted index 257 (key starts with 0x01) lands on index 1's leaf.
+        assert_eq!(
+            tree.get_indexed("ns", root, &257u64.to_le_bytes()).unwrap(),
+            Some(leaf_1),
+            "index 257 (uninserted) is expected to land on index 1's leaf"
+        );
+
+        // Inserted indices are never affected — they always return their own data.
+        assert_indexed_contains(&tree, root, 0, b"a");
+        assert_indexed_contains(&tree, root, 1, b"b");
+        assert_not_contaminated(&tree, root, 0, b"b");
+        assert_not_contaminated(&tree, root, 1, b"a");
     }
 
     #[test]
