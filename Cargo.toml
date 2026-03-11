@@ -1,6 +1,6 @@
 [package]
 name = "merkl"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Victor Lopez <vhrlopes@gmail.com>"]
 license = "MIT"
@@ -14,6 +14,10 @@ keywords = ["merkle", "redb"]
 anyhow = { version = "1.0", default-features = false }
 fjall = { version = "3.1", optional = true }
 redb = { version = "3.1", optional = true }
+serde = { version = "1.0", default-features = false, features = [
+  "alloc",
+  "derive",
+], optional = true }
 sha2 = { version = "0.10", default-features = false, optional = true }
 
 [dev-dependencies]
@@ -24,7 +28,11 @@ default = ["std"]
 fjall = ["dep:fjall", "std"]
 redb = ["dep:redb", "std"]
 sha2 = ["dep:sha2"]
-std = ["anyhow/default", "sha2?/default"]
+std = [
+  "anyhow/default",
+  "serde?/default",
+  "sha2?/default",
+]
 
 [lints.clippy]
 type_complexity = "allow"

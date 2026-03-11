@@ -194,9 +194,8 @@ impl KvsBackend for MyBackend {
         todo!()
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> Result<bool> {
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> Result<()> {
         // Store `value` under `key` in namespace `ns`.
-        // Return `true` if a previous value was overwritten.
         todo!()
     }
 }
@@ -231,7 +230,7 @@ impl KvsBackend for StaticBackend {
         todo!()
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         // implementation omitted
         todo!()
     }

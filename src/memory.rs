@@ -1,3 +1,5 @@
+//! An in-memory backend provider.
+
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use core::{cell::RefCell, ops::Deref as _, pin::Pin};
 
@@ -37,16 +39,14 @@ impl KvsBackend for MemoryBackend {
             .transpose()
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
-        let replaced = self
-            .store
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        self.store
             .try_borrow_mut()?
             .entry(ns.into())
             .or_default()
-            .insert(key.to_vec(), Pin::new(value.to_vec()))
-            .is_some();
+            .insert(key.to_vec(), Pin::new(value.to_vec()));
 
-        Ok(replaced)
+        Ok(())
     }
 }
 
@@ -65,19 +65,6 @@ mod tests {
         let b = MemoryBackend::new();
         b.set("ns", b"k", b"v").unwrap();
         assert_eq!(&*b.get("ns", b"k").unwrap().unwrap(), b"v");
-    }
-
-    #[test]
-    fn set_returns_false_on_first_insert() {
-        let b = MemoryBackend::new();
-        assert!(!b.set("ns", b"k", b"v1").unwrap());
-    }
-
-    #[test]
-    fn set_returns_true_on_overwrite() {
-        let b = MemoryBackend::new();
-        b.set("ns", b"k", b"v1").unwrap();
-        assert!(b.set("ns", b"k", b"v2").unwrap());
     }
 
     #[test]

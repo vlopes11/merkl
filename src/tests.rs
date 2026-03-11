@@ -57,15 +57,13 @@ impl KvsBackend for SharedBackend {
         Ok(self.0.borrow().get(ns).and_then(|m| m.get(key)).cloned())
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
-        let replaced = self
-            .0
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        self.0
             .borrow_mut()
             .entry(ns.into())
             .or_default()
-            .insert(key.to_vec(), value.to_vec())
-            .is_some();
-        Ok(replaced)
+            .insert(key.to_vec(), value.to_vec());
+        Ok(())
     }
 }
 
@@ -111,16 +109,14 @@ impl KvsBackend for CountingBackend {
             .cloned())
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         *self.writes.borrow_mut() += 1;
-        let replaced = self
-            .store
+        self.store
             .borrow_mut()
             .entry(ns.into())
             .or_default()
-            .insert(key.to_vec(), value.to_vec())
-            .is_some();
-        Ok(replaced)
+            .insert(key.to_vec(), value.to_vec());
+        Ok(())
     }
 }
 

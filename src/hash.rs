@@ -1,3 +1,5 @@
+//! A hasher provider.
+
 /// A 32-byte hash value.
 ///
 /// `Hash::default()` (`[0u8; 32]`) is the canonical sentinel for an empty tree

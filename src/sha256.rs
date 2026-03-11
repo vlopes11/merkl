@@ -1,3 +1,5 @@
+//! A Sha256 hasher provider.
+
 use crate::hash::{Hash, Hasher};
 use crate::tree::MerkleTree;
 use sha2::{Digest, Sha256};
