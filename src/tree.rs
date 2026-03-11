@@ -1,3 +1,5 @@
+//! A Merkle tree, backend wrapper.
+
 use alloc::format;
 use alloc::vec::Vec;
 
@@ -47,11 +49,22 @@ where
     B: KvsBackend,
     H: Hasher,
 {
+    /// Creates a new instance of the MerkleTree from the provided backend.
     pub fn new(backend: B) -> Self {
         Self {
             backend,
             _hasher: PhantomData,
         }
+    }
+
+    /// Returns the inner backend.
+    pub const fn inner(&self) -> &B {
+        &self.backend
+    }
+
+    /// Returns the inner backend as mut.
+    pub const fn inner_mut(&mut self) -> &mut B {
+        &mut self.backend
     }
 
     /// Insert a leaf into the tree identified by `root`, returning the new

@@ -1,3 +1,5 @@
+//! A redb KVS backend provider.
+
 use anyhow::Result;
 use redb::{Database, ReadableDatabase, TableDefinition};
 
@@ -85,15 +87,15 @@ impl KvsBackend for RedbBackend {
         }
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> Result<bool> {
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let composite = composite_key(ns, key);
         let tx = self.db.begin_write()?;
-        let replaced = {
+        {
             let mut table = tx.open_table(TABLE)?;
-            table.insert(composite.as_slice(), value)?.is_some()
+            table.insert(composite.as_slice(), value)?;
         };
         tx.commit()?;
-        Ok(replaced)
+        Ok(())
     }
 }
 

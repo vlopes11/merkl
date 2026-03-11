@@ -1,3 +1,5 @@
+//! A fjall KVS backend provider.
+
 use core::ops::{Deref, DerefMut};
 
 use fjall::{Database, KeyspaceCreateOptions, UserValue};
@@ -54,11 +56,11 @@ impl KvsBackend for FjallBackend {
         Ok(val)
     }
 
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.db
             .keyspace(ns, KeyspaceCreateOptions::default)?
             .insert(key, value)?;
 
-        Ok(false)
+        Ok(())
     }
 }

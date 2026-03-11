@@ -1,3 +1,5 @@
+//! A data backend provider.
+
 use core::ops::Deref;
 
 /// Shared byte-slice pointer — [`Arc`][alloc::sync::Arc]`<[u8]>` on targets
@@ -34,10 +36,9 @@ pub type Shared = alloc::sync::Arc<[u8]>;
 ///         Ok(None)
 ///     }
 ///
-///     fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool> {
+///     fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
 ///         // Store `value` under `key` in namespace `ns`.
-///         // Return `true` if a previous value was overwritten.
-///         Ok(false)
+///         Ok(())
 ///     }
 /// }
 /// ```
@@ -54,8 +55,5 @@ pub trait KvsBackend {
     fn get(&self, ns: &str, key: &[u8]) -> anyhow::Result<Option<Self::Get>>;
 
     /// Store `value` under `key` in namespace `ns`.
-    ///
-    /// Returns `true` if a previous value existed and was replaced, `false`
-    /// on a fresh insert.
-    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<bool>;
+    fn set(&self, ns: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
 }

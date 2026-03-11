@@ -1,5 +1,7 @@
+//! A membership proof provider.
+
 use alloc::vec::Vec;
-use core::marker::PhantomData;
+use core::{fmt, marker::PhantomData};
 
 use crate::{
     Node,
@@ -39,10 +41,28 @@ fn recompute_root<H: Hasher>(leaf_hash: Hash, key: &Hash, siblings: &[Hash]) -> 
 /// *hashes* are stored — traversal direction is recomputed from the key
 /// derived from the caller's inputs at verification time, so the opening
 /// cannot be forged by manipulating directions.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MerkleOpening<H> {
+    /// The siblings path that opens to the root.
     pub siblings: Vec<Hash>,
     _hasher: PhantomData<H>,
+}
+
+impl<H> PartialEq for MerkleOpening<H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.siblings == other.siblings
+    }
+}
+
+impl<H> Eq for MerkleOpening<H> {}
+
+impl<H> fmt::Debug for MerkleOpening<H> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MerkleOpening")
+            .field("siblings", &self.siblings)
+            .finish()
+    }
 }
 
 impl<H> MerkleOpening<H> {
@@ -102,5 +122,78 @@ impl<H: Hasher> MerkleOpening<H> {
         let root = recompute_root::<H>(Hash::default(), &key, &self.siblings);
 
         Ok(root)
+    }
+
+    /// Serializes the opening into bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.siblings.iter().flatten().copied().collect()
+    }
+
+    /// Attempts to deserialize an opening from the provided bytes.
+    ///
+    /// They are expected to be constructed from [MerkleOpening::to_bytes].
+    pub fn try_from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            bytes.len().is_multiple_of(32),
+            "the bytes must be a collection of hashes"
+        );
+
+        let siblings = bytes
+            .chunks_exact(32)
+            .map(Hash::try_from)
+            .collect::<Result<Vec<Hash>, _>>()?;
+
+        Ok(Self {
+            siblings,
+            _hasher: PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        MerkleTree,
+        hash::{Hash, Hasher},
+        memory::MemoryBackend,
+    };
+    use sha2::{Digest, Sha256};
+
+    struct Sha256Hasher;
+
+    impl Hasher for Sha256Hasher {
+        fn hash(data: &[u8]) -> Hash {
+            Sha256::digest(data).into()
+        }
+    }
+
+    fn new_tree() -> MerkleTree<MemoryBackend, Sha256Hasher> {
+        MerkleTree::new(MemoryBackend::new())
+    }
+
+    #[test]
+    fn to_from_bytes_works() {
+        let tree = new_tree();
+        let mut root = Hash::default();
+        let cases = [
+            ("ns", b"foo"),
+            ("ns", b"bar"),
+            ("ns", b"baz"),
+            ("ns", b"xxx"),
+        ];
+
+        // assert empty openings works
+        let opening = tree.get_opening("ns", root, b"foo").unwrap();
+        let bytes = opening.to_bytes();
+        assert_eq!(opening, MerkleOpening::try_from_bytes(&bytes).unwrap());
+
+        for (ns, leaf) in cases {
+            root = tree.insert(ns, root, leaf).unwrap();
+            let opening = tree.get_opening("ns", root, leaf).unwrap();
+            let bytes = opening.to_bytes();
+
+            assert_eq!(opening, MerkleOpening::try_from_bytes(&bytes).unwrap());
+        }
     }
 }

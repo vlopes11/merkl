@@ -1,3 +1,5 @@
+//! A common node definition.
+
 use crate::hash::Hash;
 
 /// The two children of an internal Merkle tree node.
@@ -6,8 +8,11 @@ use crate::hash::Hash;
 /// traversal: given any node hash, the backend yields its children.
 /// Leaf nodes are terminal and have no entry in the backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Node {
+    /// The left child node.
     pub left: Hash,
+    /// The right child node.
     pub right: Hash,
 }
 
