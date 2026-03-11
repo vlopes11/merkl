@@ -1,9 +1,6 @@
-[workspace]
-members = ["core", "redb"]
-resolver = "2"
-
-[workspace.package]
-version = "0.1.0"
+[package]
+name = "merkl"
+version = "0.2.0"
 edition = "2024"
 authors = ["Victor Lopez <vhrlopes@gmail.com>"]
 license = "MIT"
@@ -11,9 +8,23 @@ repository = "https://github.com/vlopes11/merkl"
 readme = "README.md"
 description = "MerkleTree, embedded friendly implementation."
 categories = ["data-structures", "no-std"]
-keywords = ["merkle"]
+keywords = ["merkle", "redb"]
 
-[workspace.dependencies]
+[dependencies]
 anyhow = { version = "1.0", default-features = false }
-redb = { version = "3.1" }
-sha2 = { version = "0.10", default-features = false }
+fjall = { version = "3.1", optional = true }
+redb = { version = "3.1", optional = true }
+sha2 = { version = "0.10", default-features = false, optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"
+
+[features]
+default = ["std"]
+fjall = ["dep:fjall", "std"]
+redb = ["dep:redb", "std"]
+sha2 = ["dep:sha2"]
+std = ["anyhow/default", "sha2?/default"]
+
+[lints.clippy]
+type_complexity = "allow"

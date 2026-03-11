@@ -19,6 +19,6 @@ impl Hasher for Sha256Hasher {
 /// use merkl::{Hash, MemoryBackend, Sha256MerkleTree};
 ///
 /// let tree = Sha256MerkleTree::<MemoryBackend>::new(MemoryBackend::new());
-/// let root = tree.insert(Hash::default(), b"hello").unwrap();
+/// let root = tree.insert("ns", Hash::default(), b"hello").unwrap();
 /// ```
 pub type Sha256MerkleTree<B> = MerkleTree<B, Sha256Hasher>;
