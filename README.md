@@ -150,15 +150,15 @@ let backend = FjallBackend::from(db);
 
 ## Membership proofs
 
-`prove_membership` collects sibling hashes bottom-up. Verification is a pure hash
+`get_opening` collects sibling hashes bottom-up. Verification is a pure hash
 computation — it never touches the backend:
 
 ```rust,ignore
-let proof = tree.prove_membership("ns", root, b"alice").unwrap();
+let proof = tree.get_opening("ns", root, b"alice").unwrap();
 assert_eq!(proof.leaf_root(b"alice"), root); // membership verified
 
 // For indexed inserts:
-let proof = tree.prove_indexed_membership("ns", root, 0, b"first").unwrap();
+let proof = tree.get_indexed_opening("ns", root, 0, b"first").unwrap();
 assert_eq!(proof.leaf_indexed_root(0, b"first"), root);
 ```
 
@@ -168,7 +168,7 @@ A sparse Merkle tree can also prove that a position is empty:
 
 ```rust,ignore
 // "carol" was never inserted; the path leads to an empty slot.
-let proof = tree.prove_membership("ns", root, b"carol").unwrap();
+let proof = tree.get_opening("ns", root, b"carol").unwrap();
 assert_eq!(proof.non_membership_leaf_root(b"carol"), root); // non-membership verified
 ```
 

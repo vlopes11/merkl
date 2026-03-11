@@ -1,7 +1,10 @@
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-use crate::hash::{Hash, Hasher};
+use crate::{
+    Node,
+    hash::{Hash, Hasher},
+};
 
 /// Recompute a Merkle root from `leaf_hash` upward through `siblings`.
 ///
@@ -9,8 +12,8 @@ use crate::hash::{Hash, Hasher};
 /// proof itself — so a prover cannot forge a proof by manipulating directions.
 ///
 /// `siblings` must be bottom-up (index 0 = leaf-level sibling, last = child
-/// of root), as produced by [`MerkleTree::prove_membership`] and
-/// [`MerkleTree::prove_indexed_membership`].
+/// of root), as produced by [`MerkleTree::get_opening`] and
+/// [`MerkleTree::get_indexed_opening`].
 fn recompute_root<H: Hasher>(leaf_hash: Hash, key: &Hash, siblings: &[Hash]) -> Hash {
     let n = siblings.len();
     let mut current = leaf_hash;
@@ -65,12 +68,18 @@ impl<H: Hasher> MerkleOpening<H> {
     ///
     /// Key = `H::hash(index.to_le_bytes())`; leaf value = `H::hash(leaf_data)`.
     /// Use this when the opening was produced by
-    /// [`MerkleTree::prove_indexed_membership`][crate::MerkleTree::prove_indexed_membership].
+    /// [`MerkleTree::get_indexed_opening`][crate::MerkleTree::get_indexed_opening].
     /// Compare the result against the known root to verify membership.
-    pub fn leaf_indexed_root(&self, index: u64, leaf_data: impl AsRef<[u8]>) -> Hash {
+    pub fn leaf_indexed_root(
+        &self,
+        index: &[u8],
+        leaf_data: impl AsRef<[u8]>,
+    ) -> anyhow::Result<Hash> {
         let leaf_hash = H::hash(leaf_data.as_ref());
-        let key = H::hash(&index.to_le_bytes());
-        recompute_root::<H>(leaf_hash, &key, &self.siblings)
+        let key = Node::key_from_bytes(index)?;
+        let root = recompute_root::<H>(leaf_hash, &key, &self.siblings);
+
+        Ok(root)
     }
 
     /// Recompute the Merkle root assuming `leaf_data`'s position is empty.
@@ -86,10 +95,12 @@ impl<H: Hasher> MerkleOpening<H> {
     ///
     /// Key = `H::hash(index.to_le_bytes())`; leaf value = `Hash::default()` (empty slot).
     /// Use this when the opening was produced by
-    /// [`MerkleTree::prove_indexed_membership`][crate::MerkleTree::prove_indexed_membership].
+    /// [`MerkleTree::get_indexed_opening`][crate::MerkleTree::get_indexed_opening].
     /// Compare the result against the known root to verify non-membership.
-    pub fn non_membership_leaf_indexed_root(&self, index: u64) -> Hash {
-        let key = H::hash(&index.to_le_bytes());
-        recompute_root::<H>(Hash::default(), &key, &self.siblings)
+    pub fn non_membership_leaf_indexed_root(&self, index: &[u8]) -> anyhow::Result<Hash> {
+        let key = Node::key_from_bytes(index)?;
+        let root = recompute_root::<H>(Hash::default(), &key, &self.siblings);
+
+        Ok(root)
     }
 }

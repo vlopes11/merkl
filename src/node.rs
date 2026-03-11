@@ -12,6 +12,20 @@ pub struct Node {
 }
 
 impl Node {
+    /// Computes a key from a slice of bytes.
+    ///
+    /// The length of the slice must be, at most, 32 bytes.
+    pub fn key_from_bytes(bytes: &[u8]) -> anyhow::Result<Hash> {
+        anyhow::ensure!(
+            bytes.len() <= 32,
+            "the provided bytes overflows the key's length"
+        );
+
+        let mut k = Hash::default();
+        k[..bytes.len()].copy_from_slice(bytes);
+        Ok(k)
+    }
+
     /// Serialise the node to a 64-byte array: left hash followed by right hash.
     pub fn to_bytes(&self) -> [u8; 64] {
         let mut buf = [0u8; 64];

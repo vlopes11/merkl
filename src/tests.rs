@@ -238,11 +238,11 @@ fn same_backend_holds_multiple_independent_subtrees() {
     let root_a = tree.insert("ns", Hash::default(), b"only in A").unwrap();
     let root_b = tree.insert("ns", Hash::default(), b"only in B").unwrap();
 
-    let proof = tree.prove_membership("ns", root_a, b"only in A").unwrap();
+    let proof = tree.get_opening("ns", root_a, b"only in A").unwrap();
     assert_eq!(proof.leaf_root(b"only in A"), root_a);
     assert_ne!(proof.leaf_root(b"only in B"), root_a);
 
-    let proof = tree.prove_membership("ns", root_b, b"only in B").unwrap();
+    let proof = tree.get_opening("ns", root_b, b"only in B").unwrap();
     assert_eq!(proof.leaf_root(b"only in B"), root_b);
     assert_ne!(proof.leaf_root(b"only in A"), root_b);
 }
@@ -255,7 +255,7 @@ fn every_past_root_is_a_stable_snapshot() {
 
     assert_ne!(root_v1, root_v2);
 
-    let proof = tree.prove_membership("ns", root_v1, b"first").unwrap();
+    let proof = tree.get_opening("ns", root_v1, b"first").unwrap();
     assert_eq!(proof.leaf_root(b"first"), root_v1);
     assert_ne!(proof.leaf_root(b"second"), root_v1);
 
@@ -276,7 +276,7 @@ fn every_past_root_is_a_stable_snapshot() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn prove_membership_root_matches_tree_root() {
+fn get_opening_root_matches_tree_root() {
     let tree = simple_tree();
     let leaves: &[&[u8]] = &[b"alpha", b"beta", b"gamma"];
     let root = leaves
@@ -284,30 +284,30 @@ fn prove_membership_root_matches_tree_root() {
         .fold(Hash::default(), |r, l| tree.insert("ns", r, l).unwrap());
 
     for leaf in leaves {
-        let proof = tree.prove_membership("ns", root, leaf).unwrap();
+        let proof = tree.get_opening("ns", root, leaf).unwrap();
         assert_eq!(proof.leaf_root(leaf), root);
     }
 }
 
 #[test]
-fn prove_membership_wrong_leaf_does_not_match_root() {
+fn get_opening_wrong_leaf_does_not_match_root() {
     let tree = simple_tree();
     let root = [b"a" as &[u8], b"b"]
         .iter()
         .fold(Hash::default(), |r, l| tree.insert("ns", r, l).unwrap());
 
-    let proof = tree.prove_membership("ns", root, b"a").unwrap();
+    let proof = tree.get_opening("ns", root, b"a").unwrap();
     assert_ne!(proof.leaf_root(b"b"), root);
 }
 
 #[test]
-fn prove_membership_tampered_sibling_does_not_match_root() {
+fn get_opening_tampered_sibling_does_not_match_root() {
     let tree = simple_tree();
     let root = [b"x" as &[u8], b"y"]
         .iter()
         .fold(Hash::default(), |r, l| tree.insert("ns", r, l).unwrap());
 
-    let mut proof = tree.prove_membership("ns", root, b"x").unwrap();
+    let mut proof = tree.get_opening("ns", root, b"x").unwrap();
     if let Some(h) = proof.siblings.first_mut() {
         h[0] ^= 0xff;
     }
@@ -315,35 +315,41 @@ fn prove_membership_tampered_sibling_does_not_match_root() {
 }
 
 #[test]
-fn prove_indexed_membership_root_matches_tree_root() {
+fn get_indexed_opening_root_matches_tree_root() {
     let tree = simple_tree();
     let leaves: &[&[u8]] = &[b"first", b"second", b"third"];
     let root = leaves
         .iter()
         .enumerate()
         .fold(Hash::default(), |r, (i, l)| {
-            tree.insert_indexed("ns", r, i as u64, l).unwrap()
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), l).unwrap()
         });
 
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree
-            .prove_indexed_membership("ns", root, i as u64, leaf)
+            .get_indexed_opening("ns", root, &i.to_le_bytes(), leaf)
             .unwrap();
-        assert_eq!(proof.leaf_indexed_root(i as u64, leaf), root);
+        assert_eq!(
+            proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
+            root
+        );
     }
 }
 
 #[test]
-fn prove_indexed_membership_wrong_leaf_does_not_match_root() {
+fn get_indexed_opening_wrong_leaf_does_not_match_root() {
     let tree = simple_tree();
     let root = tree
-        .insert_indexed("ns", Hash::default(), 0, b"payload")
+        .insert_indexed("ns", Hash::default(), &[], b"payload")
         .unwrap();
 
     let proof = tree
-        .prove_indexed_membership("ns", root, 0, b"payload")
+        .get_indexed_opening("ns", root, &[], b"payload")
         .unwrap();
-    assert_ne!(proof.leaf_indexed_root(0, b"wrong payload"), root);
+    assert_ne!(
+        proof.leaf_indexed_root(&[], b"wrong payload").unwrap(),
+        root
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -353,11 +359,11 @@ fn prove_indexed_membership_wrong_leaf_does_not_match_root() {
 /// Return the first index (skipping `skip`) whose SHA-256 key has the given
 /// bit-0 value. Terminates in ≤ 2 tries on average (50 % per candidate).
 fn find_index_with_key_bit0(target_bit: u8, skip: &[u64]) -> u64 {
-    (0u64..)
-        .find(|i| {
-            !skip.contains(i) && (Sha256Hasher::hash(&i.to_le_bytes())[0] >> 7) & 1 == target_bit
-        })
-        .unwrap()
+    let xor = skip.iter().copied().fold(0u64, |acc, x| acc ^ !x);
+    let xor = xor & 0b01111111;
+    let xor = xor | ((target_bit as u64) << 7);
+
+    xor
 }
 
 #[test]
@@ -366,7 +372,7 @@ fn non_membership_leaf_root_empty_tree() {
     // non_membership_leaf_root must equal Hash::default() for any leaf.
     let tree = simple_tree();
     let proof = tree
-        .prove_membership("ns", Hash::default(), b"anything")
+        .get_opening("ns", Hash::default(), b"anything")
         .unwrap();
     assert_eq!(proof.non_membership_leaf_root(b"anything"), Hash::default());
 }
@@ -375,9 +381,12 @@ fn non_membership_leaf_root_empty_tree() {
 fn non_membership_leaf_indexed_root_empty_tree() {
     let tree = simple_tree();
     let proof = tree
-        .prove_indexed_membership("ns", Hash::default(), 7, b"anything")
+        .get_indexed_opening("ns", Hash::default(), &[7], b"anything")
         .unwrap();
-    assert_eq!(proof.non_membership_leaf_indexed_root(7), Hash::default());
+    assert_eq!(
+        proof.non_membership_leaf_indexed_root(&[7]).unwrap(),
+        Hash::default()
+    );
 }
 
 #[test]
@@ -391,7 +400,7 @@ fn non_membership_leaf_root_rejects_present_leaf() {
         .fold(Hash::default(), |r, l| tree.insert("ns", r, l).unwrap());
 
     for leaf in leaves {
-        let proof = tree.prove_membership("ns", root, leaf).unwrap();
+        let proof = tree.get_opening("ns", root, leaf).unwrap();
         assert_eq!(proof.leaf_root(leaf), root); // sanity: membership holds
         assert_ne!(proof.non_membership_leaf_root(leaf), root); // non-membership must fail
     }
@@ -405,15 +414,23 @@ fn non_membership_leaf_indexed_root_rejects_present_index() {
         .iter()
         .enumerate()
         .fold(Hash::default(), |r, (i, l)| {
-            tree.insert_indexed("ns", r, i as u64, l).unwrap()
+            tree.insert_indexed("ns", r, &i.to_le_bytes(), l).unwrap()
         });
 
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree
-            .prove_indexed_membership("ns", root, i as u64, leaf)
+            .get_indexed_opening("ns", root, &i.to_le_bytes(), leaf)
             .unwrap();
-        assert_eq!(proof.leaf_indexed_root(i as u64, leaf), root); // sanity
-        assert_ne!(proof.non_membership_leaf_indexed_root(i as u64), root); // must fail
+        assert_eq!(
+            proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
+            root
+        ); // sanity
+        assert_ne!(
+            proof
+                .non_membership_leaf_indexed_root(&i.to_le_bytes())
+                .unwrap(),
+            root
+        ); // must fail
     }
 }
 
@@ -428,19 +445,29 @@ fn non_membership_leaf_indexed_root_validates_empty_slot() {
     let i = find_index_with_key_bit0(0, &[]);
     let j = find_index_with_key_bit0(0, &[i]);
     let root = tree
-        .insert_indexed("ns", Hash::default(), i, &i.to_le_bytes())
+        .insert_indexed("ns", Hash::default(), &i.to_le_bytes(), &i.to_le_bytes())
         .unwrap();
     let root = tree
-        .insert_indexed("ns", root, j, &j.to_le_bytes())
+        .insert_indexed("ns", root, &j.to_le_bytes(), &j.to_le_bytes())
         .unwrap();
 
     let absent = find_index_with_key_bit0(1, &[i, j]);
     let proof = tree
-        .prove_indexed_membership("ns", root, absent, b"irrelevant")
+        .get_indexed_opening("ns", root, &absent.to_le_bytes(), b"irrelevant")
         .unwrap();
 
-    assert_eq!(proof.non_membership_leaf_indexed_root(absent), root);
-    assert_ne!(proof.leaf_indexed_root(absent, b"irrelevant"), root);
+    assert_eq!(
+        proof
+            .non_membership_leaf_indexed_root(&absent.to_le_bytes())
+            .unwrap(),
+        root
+    );
+    assert_ne!(
+        proof
+            .leaf_indexed_root(&absent.to_le_bytes(), b"irrelevant")
+            .unwrap(),
+        root
+    );
 }
 
 #[test]
@@ -461,9 +488,7 @@ fn non_membership_leaf_root_validates_empty_slot() {
     let absent_i = find_index_with_key_bit0(1, &[i, j]);
     let absent = absent_i.to_le_bytes();
 
-    let proof = tree
-        .prove_membership("ns", root, absent.as_slice())
-        .unwrap();
+    let proof = tree.get_opening("ns", root, absent.as_slice()).unwrap();
     assert_eq!(proof.non_membership_leaf_root(absent), root);
     assert_ne!(proof.leaf_root(absent), root);
 }
@@ -501,6 +526,6 @@ fn custom_backend_with_shared_storage_enables_external_inspection() {
     let node_count = backend.0.borrow().get("ns").map_or(0, |m| m.len());
     assert!(node_count > 0, "internal nodes must have been stored");
 
-    let proof = tree.prove_membership("ns", root, b"x").unwrap();
+    let proof = tree.get_opening("ns", root, b"x").unwrap();
     assert_eq!(proof.leaf_root(b"x"), root);
 }
