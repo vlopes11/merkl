@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all --check
+      - run: cargo fmt --check
 
   clippy:
     name: Clippy (${{ matrix.name }})
@@ -27,36 +27,36 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # merkl — no features
-          - name: merkl
-            pkg: merkl
+          # no_std — no features
+          - name: no features
             args: --no-default-features
-          # merkl — sha2
-          - name: merkl / sha2
-            pkg: merkl
+          # no_std + sha2
+          - name: sha2
             args: --no-default-features --features sha2
-          # merkl-redb — no features
-          - name: merkl-redb
-            pkg: merkl-redb
+          # std (default)
+          - name: std
             args: ""
-          # merkl-redb — sha2
-          - name: merkl-redb / sha2
-            pkg: merkl-redb
+          # std + sha2
+          - name: std / sha2
             args: --features sha2
-          # merkl-redb — multi-thread
-          - name: merkl-redb / multi-thread
-            pkg: merkl-redb
-            args: --features multi-thread
-          # merkl-redb — sha2 + multi-thread
-          - name: merkl-redb / sha2 + multi-thread
-            pkg: merkl-redb
-            args: --features sha2,multi-thread
+          # redb (implies std)
+          - name: redb
+            args: --features redb
+          # redb + sha2
+          - name: redb / sha2
+            args: --features redb,sha2
+          # fjall (implies std)
+          - name: fjall
+            args: --features fjall
+          # fjall + sha2
+          - name: fjall / sha2
+            args: --features fjall,sha2
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy -p ${{ matrix.pkg }} ${{ matrix.args }}
+      - run: cargo clippy ${{ matrix.args }}
 
   bare-metal:
     name: Bare-metal (${{ matrix.name }})
@@ -65,18 +65,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # core — no features
-          - name: merkl / thumbv7m-none-eabi
+          # no_std — no features
+          - name: no features
             args: --no-default-features
-          # core — sha2 (sha2 crate is no_std-compatible)
-          - name: merkl / thumbv7m-none-eabi / sha2
+          # no_std + sha2 (sha2 crate is no_std-compatible)
+          - name: sha2
             args: --no-default-features --features sha2
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: thumbv7m-none-eabi
-      - run: cargo check -p merkl ${{ matrix.args }} --target thumbv7m-none-eabi
+      - run: cargo check --target thumbv7m-none-eabi ${{ matrix.args }}
 
   test:
     name: Test (${{ matrix.name }})
@@ -85,31 +85,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # merkl — no features
-          - name: merkl
-            pkg: merkl
+          # no_std — no features
+          - name: no features
             args: --no-default-features
-          # merkl — sha2
-          - name: merkl / sha2
-            pkg: merkl
+          # no_std + sha2
+          - name: sha2
             args: --no-default-features --features sha2
-          # merkl-redb — no features
-          - name: merkl-redb
-            pkg: merkl-redb
+          # std (default)
+          - name: std
             args: ""
-          # merkl-redb — sha2
-          - name: merkl-redb / sha2
-            pkg: merkl-redb
+          # std + sha2
+          - name: std / sha2
             args: --features sha2
-          # merkl-redb — multi-thread
-          - name: merkl-redb / multi-thread
-            pkg: merkl-redb
-            args: --features multi-thread
-          # merkl-redb — sha2 + multi-thread
-          - name: merkl-redb / sha2 + multi-thread
-            pkg: merkl-redb
-            args: --features sha2,multi-thread
+          # redb (implies std)
+          - name: redb
+            args: --features redb
+          # redb + sha2
+          - name: redb / sha2
+            args: --features redb,sha2
+          # fjall (implies std)
+          - name: fjall
+            args: --features fjall
+          # fjall + sha2
+          - name: fjall / sha2
+            args: --features fjall,sha2
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p ${{ matrix.pkg }} ${{ matrix.args }}
+      - run: cargo test ${{ matrix.args }}
