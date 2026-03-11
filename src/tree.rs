@@ -85,10 +85,10 @@ where
         &self,
         ns: &str,
         root: Hash,
-        index: u64,
+        index: &[u8],
         leaf_data: impl AsRef<[u8]>,
     ) -> Result<Hash> {
-        let key = H::hash(&index.to_le_bytes());
+        let key = Node::key_from_bytes(index)?;
         self.insert_keyed(ns, root, key, leaf_data)
     }
 
@@ -177,7 +177,7 @@ where
     /// The traversal key is `H::hash(leaf_data)`, matching [`Self::insert`].
     /// Call [`MerkleOpening::leaf_root`] on the returned opening and compare
     /// against `root` to verify membership.
-    pub fn prove_membership(
+    pub fn get_opening(
         &self,
         ns: &str,
         root: Hash,
@@ -195,15 +195,15 @@ where
     /// [`Self::insert_indexed`].
     /// Call [`MerkleOpening::leaf_indexed_root`] on the returned opening and
     /// compare against `root` to verify membership.
-    pub fn prove_indexed_membership(
+    pub fn get_indexed_opening(
         &self,
         ns: &str,
         root: Hash,
-        index: u64,
+        index: &[u8],
         leaf_data: impl AsRef<[u8]>,
     ) -> Result<MerkleOpening<H>> {
         let _ = leaf_data; // leaf hash is computed inside MerkleOpening::leaf_indexed_root
-        let key = H::hash(&index.to_le_bytes());
+        let key = Node::key_from_bytes(index)?;
         let siblings = self.collect_proof(ns, root, key)?;
         Ok(MerkleOpening::new(siblings))
     }
@@ -456,32 +456,32 @@ mod tests {
     }
 
     #[test]
-    fn prove_membership_all_leaves() {
+    fn get_opening_all_leaves() {
         let (tree, root) = insert_all(&[b"a", b"b", b"c"]);
         for leaf in [b"a" as &[u8], b"b", b"c"] {
-            let proof = tree.prove_membership("ns", root, leaf).unwrap();
+            let proof = tree.get_opening("ns", root, leaf).unwrap();
             assert_eq!(proof.leaf_root(leaf), root);
         }
     }
 
     #[test]
-    fn prove_membership_rejects_wrong_root() {
+    fn get_opening_rejects_wrong_root() {
         let (tree, root) = insert_all(&[b"a", b"b"]);
         let _ = root;
         let bad_root = Sha256Hasher::hash(b"not a root");
-        let proof = tree.prove_membership("ns", bad_root, b"a").unwrap();
+        let proof = tree.get_opening("ns", bad_root, b"a").unwrap();
         assert_ne!(proof.leaf_root(b"a"), Sha256Hasher::hash(b"a root"));
     }
 
     #[test]
-    fn prove_membership_with_3_bit_prefix_collision() {
+    fn get_opening_with_3_bit_prefix_collision() {
         let (a, b) = find_3bit_prefix_pair();
         let tree = new_tree();
         let root = tree.insert("ns", Hash::default(), &a).unwrap();
         let root = tree.insert("ns", root, &b).unwrap();
 
-        let proof_a = tree.prove_membership("ns", root, &a).unwrap();
-        let proof_b = tree.prove_membership("ns", root, &b).unwrap();
+        let proof_a = tree.get_opening("ns", root, &a).unwrap();
+        let proof_b = tree.get_opening("ns", root, &b).unwrap();
 
         assert_eq!(proof_a.leaf_root(&a), root);
         assert_eq!(proof_b.leaf_root(&b), root);
