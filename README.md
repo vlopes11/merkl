@@ -158,7 +158,7 @@ let proof = tree.get_opening("ns", root, b"alice").unwrap();
 assert_eq!(proof.leaf_root(b"alice"), root); // membership verified
 
 // For indexed inserts:
-let proof = tree.get_indexed_opening("ns", root, 0, b"first").unwrap();
+let proof = tree.get_indexed_opening("ns", root, 0).unwrap();
 assert_eq!(proof.leaf_indexed_root(0, b"first"), root);
 ```
 
@@ -250,4 +250,4 @@ The `redb` and `fjall` backend features always require `std`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](./LICENSE).
