@@ -39,3 +39,9 @@ pub trait Hasher {
         Self::hash(&buf)
     }
 }
+
+impl Hasher for () {
+    fn hash(_: &[u8]) -> Hash {
+        Hash::default()
+    }
+}
