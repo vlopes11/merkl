@@ -142,11 +142,11 @@ use merkl::{Hash, tree::MerkleTreeDummy};
 let (tree, root) = (MerkleTreeDummy::default(), Hash::default());
 // create an opening proof
 let proof = tree.get_opening("ns", root, b"alice").unwrap();
-assert_eq!(proof.leaf_root(b"alice"), root); // membership verified
+assert_eq!(proof.leaf_root(<() as merkl::Hasher>::hash(b"alice")), root); // membership verified
 
 // For indexed inserts:
 let proof = tree.get_indexed_opening("ns", root, &0u64.to_le_bytes()).unwrap();
-assert_eq!(proof.leaf_indexed_root(&0u64.to_le_bytes(), b"first").unwrap(), root);
+assert_eq!(proof.leaf_indexed_root(&0u64.to_le_bytes(), <() as merkl::Hasher>::hash(b"first")).unwrap(), root);
 ```
 
 ### Non-membership proofs

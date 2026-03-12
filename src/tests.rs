@@ -235,12 +235,12 @@ fn same_backend_holds_multiple_independent_subtrees() {
     let root_b = tree.insert("ns", Hash::default(), b"only in B").unwrap();
 
     let proof = tree.get_opening("ns", root_a, b"only in A").unwrap();
-    assert_eq!(proof.leaf_root(b"only in A"), root_a);
-    assert_ne!(proof.leaf_root(b"only in B"), root_a);
+    assert_eq!(proof.leaf_root(Sha256Hasher::hash(b"only in A")), root_a);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(b"only in B")), root_a);
 
     let proof = tree.get_opening("ns", root_b, b"only in B").unwrap();
-    assert_eq!(proof.leaf_root(b"only in B"), root_b);
-    assert_ne!(proof.leaf_root(b"only in A"), root_b);
+    assert_eq!(proof.leaf_root(Sha256Hasher::hash(b"only in B")), root_b);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(b"only in A")), root_b);
 }
 
 #[test]
@@ -252,8 +252,8 @@ fn every_past_root_is_a_stable_snapshot() {
     assert_ne!(root_v1, root_v2);
 
     let proof = tree.get_opening("ns", root_v1, b"first").unwrap();
-    assert_eq!(proof.leaf_root(b"first"), root_v1);
-    assert_ne!(proof.leaf_root(b"second"), root_v1);
+    assert_eq!(proof.leaf_root(Sha256Hasher::hash(b"first")), root_v1);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(b"second")), root_v1);
 
     assert_eq!(
         tree.get("ns", root_v2, Sha256Hasher::hash(b"first"))
@@ -281,7 +281,7 @@ fn get_opening_root_matches_tree_root() {
 
     for leaf in leaves {
         let proof = tree.get_opening("ns", root, leaf).unwrap();
-        assert_eq!(proof.leaf_root(leaf), root);
+        assert_eq!(proof.leaf_root(Sha256Hasher::hash(leaf)), root);
     }
 }
 
@@ -293,7 +293,7 @@ fn get_opening_wrong_leaf_does_not_match_root() {
         .fold(Hash::default(), |r, l| tree.insert("ns", r, l).unwrap());
 
     let proof = tree.get_opening("ns", root, b"a").unwrap();
-    assert_ne!(proof.leaf_root(b"b"), root);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(b"b")), root);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn get_opening_tampered_sibling_does_not_match_root() {
     if let Some(h) = proof.siblings.first_mut() {
         h[0] ^= 0xff;
     }
-    assert_ne!(proof.leaf_root(b"x"), root);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(b"x")), root);
 }
 
 #[test]
@@ -326,7 +326,9 @@ fn get_indexed_opening_root_matches_tree_root() {
             .get_indexed_opening("ns", root, &i.to_le_bytes())
             .unwrap();
         assert_eq!(
-            proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
+            proof
+                .leaf_indexed_root(&i.to_le_bytes(), Sha256Hasher::hash(leaf))
+                .unwrap(),
             root
         );
     }
@@ -341,7 +343,9 @@ fn get_indexed_opening_wrong_leaf_does_not_match_root() {
 
     let proof = tree.get_indexed_opening("ns", root, &[]).unwrap();
     assert_ne!(
-        proof.leaf_indexed_root(&[], b"wrong payload").unwrap(),
+        proof
+            .leaf_indexed_root(&[], Sha256Hasher::hash(b"wrong payload"))
+            .unwrap(),
         root
     );
 }
@@ -395,7 +399,7 @@ fn non_membership_leaf_root_rejects_present_leaf() {
 
     for leaf in leaves {
         let proof = tree.get_opening("ns", root, leaf).unwrap();
-        assert_eq!(proof.leaf_root(leaf), root); // sanity: membership holds
+        assert_eq!(proof.leaf_root(Sha256Hasher::hash(leaf)), root); // sanity: membership holds
         assert_ne!(proof.non_membership_leaf_root(leaf), root); // non-membership must fail
     }
 }
@@ -416,7 +420,9 @@ fn non_membership_leaf_indexed_root_rejects_present_index() {
             .get_indexed_opening("ns", root, &i.to_le_bytes())
             .unwrap();
         assert_eq!(
-            proof.leaf_indexed_root(&i.to_le_bytes(), leaf).unwrap(),
+            proof
+                .leaf_indexed_root(&i.to_le_bytes(), Sha256Hasher::hash(leaf))
+                .unwrap(),
             root
         ); // sanity
         assert_ne!(
@@ -458,7 +464,7 @@ fn non_membership_leaf_indexed_root_validates_empty_slot() {
     );
     assert_ne!(
         proof
-            .leaf_indexed_root(&absent.to_le_bytes(), b"irrelevant")
+            .leaf_indexed_root(&absent.to_le_bytes(), Sha256Hasher::hash(b"irrelevant"))
             .unwrap(),
         root
     );
@@ -484,7 +490,7 @@ fn non_membership_leaf_root_validates_empty_slot() {
 
     let proof = tree.get_opening("ns", root, absent.as_slice()).unwrap();
     assert_eq!(proof.non_membership_leaf_root(absent), root);
-    assert_ne!(proof.leaf_root(absent), root);
+    assert_ne!(proof.leaf_root(Sha256Hasher::hash(&absent)), root);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,5 +527,5 @@ fn custom_backend_with_shared_storage_enables_external_inspection() {
     assert!(node_count > 0, "internal nodes must have been stored");
 
     let proof = tree.get_opening("ns", root, b"x").unwrap();
-    assert_eq!(proof.leaf_root(b"x"), root);
+    assert_eq!(proof.leaf_root(Sha256Hasher::hash(b"x")), root);
 }
