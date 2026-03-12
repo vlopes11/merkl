@@ -543,7 +543,7 @@ mod tests {
         let (tree, root) = insert_all(&[b"a", b"b", b"c"]);
         for leaf in [b"a" as &[u8], b"b", b"c"] {
             let proof = tree.get_opening("ns", root, leaf).unwrap();
-            assert_eq!(proof.leaf_root(leaf), root);
+            assert_eq!(proof.leaf_root(Sha256Hasher::hash(leaf)), root);
         }
     }
 
@@ -553,7 +553,10 @@ mod tests {
         let _ = root;
         let bad_root = Sha256Hasher::hash(b"not a root");
         let proof = tree.get_opening("ns", bad_root, b"a").unwrap();
-        assert_ne!(proof.leaf_root(b"a"), Sha256Hasher::hash(b"a root"));
+        assert_ne!(
+            proof.leaf_root(Sha256Hasher::hash(b"a")),
+            Sha256Hasher::hash(b"a root")
+        );
     }
 
     #[test]
@@ -566,11 +569,11 @@ mod tests {
         let proof_a = tree.get_opening("ns", root, &a).unwrap();
         let proof_b = tree.get_opening("ns", root, &b).unwrap();
 
-        assert_eq!(proof_a.leaf_root(&a), root);
-        assert_eq!(proof_b.leaf_root(&b), root);
+        assert_eq!(proof_a.leaf_root(Sha256Hasher::hash(&a)), root);
+        assert_eq!(proof_b.leaf_root(Sha256Hasher::hash(&b)), root);
 
-        assert_ne!(proof_a.leaf_root(&b), root);
-        assert_ne!(proof_b.leaf_root(&a), root);
+        assert_ne!(proof_a.leaf_root(Sha256Hasher::hash(&b)), root);
+        assert_ne!(proof_b.leaf_root(Sha256Hasher::hash(&a)), root);
     }
 
     #[test]
@@ -908,14 +911,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             proof
-                .leaf_indexed_root(&0u64.to_le_bytes(), b"new")
+                .leaf_indexed_root(&0u64.to_le_bytes(), Sha256Hasher::hash(b"new"))
                 .unwrap(),
             root,
             "proof must verify for new value"
         );
         assert_ne!(
             proof
-                .leaf_indexed_root(&0u64.to_le_bytes(), b"old")
+                .leaf_indexed_root(&0u64.to_le_bytes(), Sha256Hasher::hash(b"old"))
                 .unwrap(),
             root,
             "proof must not verify for old value"
@@ -940,7 +943,9 @@ mod tests {
             .get_indexed_opening("ns", root, &1u64.to_le_bytes())
             .unwrap();
         assert_eq!(
-            proof1.leaf_indexed_root(&1u64.to_le_bytes(), b"b").unwrap(),
+            proof1
+                .leaf_indexed_root(&1u64.to_le_bytes(), Sha256Hasher::hash(b"b"))
+                .unwrap(),
             root,
             "sibling proof must still be valid after override"
         );

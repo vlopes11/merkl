@@ -79,9 +79,17 @@ impl<H: Hasher> MerkleOpening<H> {
     ///
     /// Key = `H::hash(leaf_data)`; leaf value = `H::hash(leaf_data)`.
     /// Compare the result against the known root to verify membership.
-    pub fn leaf_root(&self, leaf_data: impl AsRef<[u8]>) -> Hash {
+    pub fn leaf_root_data(&self, leaf_data: impl AsRef<[u8]>) -> Hash {
         let leaf_hash = H::hash(leaf_data.as_ref());
-        recompute_root::<H>(leaf_hash, &leaf_hash, &self.siblings)
+        self.leaf_root(leaf_hash)
+    }
+
+    /// Recompute the Merkle root for a member `leaf_data`.
+    ///
+    /// Key = `H::hash(leaf_data)`; leaf value = `H::hash(leaf_data)`.
+    /// Compare the result against the known root to verify membership.
+    pub fn leaf_root(&self, leaf: Hash) -> Hash {
+        recompute_root::<H>(leaf, &leaf, &self.siblings)
     }
 
     /// Recompute the Merkle root for a member `leaf_data` at position `index`.
@@ -90,14 +98,25 @@ impl<H: Hasher> MerkleOpening<H> {
     /// Use this when the opening was produced by
     /// [`MerkleTree::get_indexed_opening`][crate::MerkleTree::get_indexed_opening].
     /// Compare the result against the known root to verify membership.
-    pub fn leaf_indexed_root(
+    pub fn leaf_indexed_root_data(
         &self,
         index: &[u8],
         leaf_data: impl AsRef<[u8]>,
     ) -> anyhow::Result<Hash> {
         let leaf_hash = H::hash(leaf_data.as_ref());
+
+        self.leaf_indexed_root(index, leaf_hash)
+    }
+
+    /// Recompute the Merkle root for a member `leaf_data` at position `index`.
+    ///
+    /// Key = `H::hash(index.to_le_bytes())`; leaf value = `H::hash(leaf_data)`.
+    /// Use this when the opening was produced by
+    /// [`MerkleTree::get_indexed_opening`][crate::MerkleTree::get_indexed_opening].
+    /// Compare the result against the known root to verify membership.
+    pub fn leaf_indexed_root(&self, index: &[u8], leaf: Hash) -> anyhow::Result<Hash> {
         let key = Node::key_from_bytes(index)?;
-        let root = recompute_root::<H>(leaf_hash, &key, &self.siblings);
+        let root = recompute_root::<H>(leaf, &key, &self.siblings);
 
         Ok(root)
     }
