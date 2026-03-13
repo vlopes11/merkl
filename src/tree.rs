@@ -4,6 +4,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use crate::backend::KvsBackend;
+use crate::ephemeral::EphemeralBackend;
 use crate::hash::{Hash, Hasher};
 use crate::node::Node;
 use crate::proof::MerkleOpening;
@@ -38,7 +39,8 @@ fn get_bit(key: &Hash, level: usize) -> u8 {
 /// (one per hash bit).  On embedded targets with limited stack space, ensure
 /// at least ~256 × (frame size) bytes are available before calling these
 /// methods.
-pub struct MerkleTree<B, H> {
+#[derive(Clone)]
+pub struct MerkleTree<B: KvsBackend, H: Hasher> {
     backend: B,
     _hasher: PhantomData<H>,
 }
@@ -46,11 +48,14 @@ pub struct MerkleTree<B, H> {
 /// A dummy Merkle tree implementation with no hasher or backend.
 pub type MerkleTreeDummy = MerkleTree<(), ()>;
 
-impl Default for MerkleTreeDummy {
+impl<B: KvsBackend, H: Hasher> Default for MerkleTree<B, H>
+where
+    B: Default,
+{
     fn default() -> Self {
         Self {
-            backend: (),
-            _hasher: PhantomData,
+            backend: Default::default(),
+            _hasher: Default::default(),
         }
     }
 }
@@ -68,6 +73,14 @@ where
         }
     }
 
+    /// Returns an instance with another hash provider.
+    pub fn with_hasher<HH: Hasher>(self) -> MerkleTree<B, HH> {
+        MerkleTree {
+            backend: self.backend,
+            _hasher: PhantomData,
+        }
+    }
+
     /// Returns the inner backend.
     pub const fn inner(&self) -> &B {
         &self.backend
@@ -81,6 +94,15 @@ where
     /// Returns the inner backend.
     pub fn into_inner(self) -> B {
         self.backend
+    }
+
+    /// Returns a no-persist ephemeral tree.
+    ///
+    /// The mutations performed on this tree will not reflect on the data backend, but they are
+    /// guaranteed to be correct.
+    pub fn to_ephemeral<'a>(&'a self) -> MerkleTree<EphemeralBackend<'a, B>, H> {
+        let backend = EphemeralBackend::new(&self.backend);
+        MerkleTree::new(backend)
     }
 
     /// Insert a leaf into the tree identified by `root`, returning the new
@@ -263,8 +285,8 @@ where
     /// Call [`MerkleOpening::leaf_root`] on the returned opening and compare
     /// against `root` to verify membership.
     pub fn get_opening_leaf(&self, ns: &str, root: Hash, leaf: Hash) -> Result<MerkleOpening<H>> {
-        let siblings = self.collect_proof(ns, root, leaf)?;
-        Ok(MerkleOpening::new(siblings))
+        let (siblings, terminal) = self.collect_proof(ns, root, leaf)?;
+        Ok(MerkleOpening::new(siblings, terminal))
     }
 
     /// Build a Merkle opening proof for `leaf_data` inserted at position
@@ -281,13 +303,17 @@ where
         index: &[u8],
     ) -> Result<MerkleOpening<H>> {
         let key = Node::key_from_bytes(index)?;
-        let siblings = self.collect_proof(ns, root, key)?;
-        Ok(MerkleOpening::new(siblings))
+        let (siblings, terminal) = self.collect_proof(ns, root, key)?;
+        Ok(MerkleOpening::new(siblings, terminal))
     }
 
     /// Traverse the tree from `root` along `key`'s bit path, collecting
     /// sibling hashes bottom-up (leaf-level first).
-    fn collect_proof(&self, ns: &str, root: Hash, key: Hash) -> Result<Vec<Hash>> {
+    ///
+    /// Returns `(siblings, terminal)` where `terminal` is the hash found at
+    /// the end of the path (`Hash::default()` for an empty slot, or a leaf
+    /// hash for a leaf terminal).
+    fn collect_proof(&self, ns: &str, root: Hash, key: Hash) -> Result<(Vec<Hash>, Hash)> {
         let mut current = root;
         let mut level = 0usize;
         let mut siblings: Vec<Hash> = Vec::new();
@@ -312,7 +338,7 @@ where
             }
         }
         siblings.reverse(); // bottom-up: siblings[0] = leaf-level sibling
-        Ok(siblings)
+        Ok((siblings, current))
     }
 
     /// Recursively insert `leaf_hash` at the position determined by `key`
@@ -439,6 +465,7 @@ mod tests {
     use alloc::string::ToString;
     use sha2::{Digest, Sha256};
 
+    #[derive(Clone)]
     struct Sha256Hasher;
 
     impl Hasher for Sha256Hasher {

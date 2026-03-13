@@ -9,6 +9,7 @@ use crate::backend::{KvsBackend, Shared};
 ///
 /// Suitable for single-threaded use and testing. For multi-threaded
 /// environments, provide your own implementation using a `Mutex` or similar.
+#[derive(Clone)]
 pub struct MemoryBackend {
     store: RefCell<BTreeMap<String, BTreeMap<Vec<u8>, Pin<Vec<u8>>>>>,
 }

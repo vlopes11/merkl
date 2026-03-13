@@ -27,6 +27,7 @@ pub type Shared = alloc::sync::Arc<[u8]>;
 /// ```rust
 /// use merkl::KvsBackend;
 ///
+/// #[derive(Clone)]
 /// struct MyBackend;
 ///
 /// impl KvsBackend for MyBackend {
@@ -43,7 +44,7 @@ pub type Shared = alloc::sync::Arc<[u8]>;
 ///     }
 /// }
 /// ```
-pub trait KvsBackend {
+pub trait KvsBackend: Clone {
     /// The smart-pointer type returned by [`get`][Self::get].
     ///
     /// Must [`Deref`] to `[u8]`. Common choices: [`Vec<u8>`], [`Shared`],

@@ -14,6 +14,7 @@ pub type Hash = [u8; 32];
 /// ```rust
 /// use merkl::{Hash, Hasher};
 ///
+/// #[derive(Clone)]
 /// struct IdentityHasher;
 ///
 /// impl Hasher for IdentityHasher {
@@ -25,7 +26,7 @@ pub type Hash = [u8; 32];
 ///     }
 /// }
 /// ```
-pub trait Hasher {
+pub trait Hasher: Clone {
     /// Hash arbitrary bytes to a 32-byte digest.
     fn hash(data: &[u8]) -> Hash;
 

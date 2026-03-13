@@ -6,6 +6,7 @@
 extern crate alloc;
 
 pub mod backend;
+pub mod ephemeral;
 pub mod hash;
 pub mod memory;
 pub mod node;

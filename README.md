@@ -29,7 +29,7 @@ root ──► Node{ left, right }
 
 An all-zero `Hash` (`Hash::default()`) is the canonical empty root.
 
-Three ways to insert a leaf:
+Four ways to insert a leaf:
 
 | Method | Key derivation | Use when |
 |--------|---------------|----------|
@@ -54,7 +54,7 @@ Three ways to insert a leaf:
 
 ```toml
 [dependencies]
-merkl = { version = "0.4", features = ["sha2"] }
+merkl = { version = "1.0", features = ["sha2"] }
 ```
 
 ```rust
@@ -84,11 +84,29 @@ let root = tree.insert_indexed("ns", root, &1u64.to_le_bytes(), b"second").unwra
 The key for `index` is the raw bytes copied into a 32-byte zero-padded buffer, giving
 each index a fixed, deterministic position in the tree.
 
+## Ephemeral forks
+
+`to_ephemeral()` creates a short-lived view of a tree that reads from the
+original backend but writes only into a temporary in-memory overlay. The
+original backend is never mutated:
+
+```rust
+use merkl::{Hash, tree::MerkleTreeDummy};
+
+let tree = MerkleTreeDummy::default();
+let root = tree.insert("ns", Hash::default(), b"committed").unwrap();
+
+// Fork: all inserts go to the ephemeral overlay only.
+let ephemeral = tree.to_ephemeral();
+let _fork_root = ephemeral.insert("ns", root, b"speculative").unwrap();
+// The original backend is never modified by the ephemeral fork.
+```
+
 ## redb backend (`redb` feature)
 
 ```toml
 [dependencies]
-merkl = { version = "0.4", features = ["redb", "sha2"] }
+merkl = { version = "1.0", features = ["redb", "sha2"] }
 ```
 
 ```rust,ignore
@@ -121,32 +139,51 @@ will give better throughput.
 
 ```toml
 [dependencies]
-merkl = { version = "0.4", features = ["fjall"] }
+merkl = { version = "1.0", features = ["fjall"] }
 ```
 
 ```rust,ignore
 #[cfg(feature = "fjall")] {
-use merkl::fjall::{current::Database, FjallBackend};
-let db = Database::builder("my_tree").open().unwrap();
-let backend = FjallBackend::from(db);
+use merkl::fjall::FjallBackend;
+let backend = FjallBackend::new("my_tree").unwrap();
 }
 ```
 
 ## Membership proofs
 
-`get_opening` collects sibling hashes bottom-up. Verification is a pure hash
-computation — it never touches the backend:
+`get_opening` / `get_opening_leaf` / `get_indexed_opening` collect sibling
+hashes bottom-up. Verification is a pure hash computation — it never touches
+the backend:
 
 ```rust
 use merkl::{Hash, tree::MerkleTreeDummy};
-let (tree, root) = (MerkleTreeDummy::default(), Hash::default());
-// create an opening proof
-let proof = tree.get_opening("ns", root, b"alice").unwrap();
-assert_eq!(proof.leaf_root(<() as merkl::Hasher>::hash(b"alice")), root); // membership verified
+let tree = MerkleTreeDummy::default();
+let root = tree.insert("ns", Hash::default(), b"alice").unwrap();
 
-// For indexed inserts:
+// Verify membership by leaf data (convenience — hashes data internally).
+let proof = tree.get_opening("ns", root, b"alice").unwrap();
+assert_eq!(proof.leaf_root_data(b"alice"), root);
+
+// Or supply the leaf hash directly.
+assert_eq!(proof.leaf_root(<() as merkl::Hasher>::hash(b"alice")), root);
+```
+
+For indexed inserts, use `get_indexed_opening` and `get_indexed`:
+
+```rust
+use merkl::{Hash, tree::MerkleTreeDummy};
+let tree = MerkleTreeDummy::default();
+let root = tree.insert_indexed("ns", Hash::default(), &0u64.to_le_bytes(), b"first").unwrap();
+
+// Retrieve the stored leaf hash by index.
+let leaf = tree.get_indexed("ns", root, &0u64.to_le_bytes()).unwrap();
+
+// Build and verify an indexed opening.
 let proof = tree.get_indexed_opening("ns", root, &0u64.to_le_bytes()).unwrap();
-assert_eq!(proof.leaf_indexed_root(&0u64.to_le_bytes(), <() as merkl::Hasher>::hash(b"first")).unwrap(), root);
+assert_eq!(
+    proof.leaf_indexed_root(&0u64.to_le_bytes(), <() as merkl::Hasher>::hash(b"first")).unwrap(),
+    root
+);
 ```
 
 ### Non-membership proofs
@@ -156,13 +193,34 @@ A sparse Merkle tree can also prove that a position is empty:
 ```rust
 use merkl::{Hash, tree::MerkleTreeDummy};
 let (tree, root) = (MerkleTreeDummy::default(), Hash::default());
+
 // "carol" was never inserted; the path leads to an empty slot.
 let proof = tree.get_opening("ns", root, b"carol").unwrap();
-assert_eq!(proof.non_membership_leaf_root(b"carol"), root); // non-membership verified
+assert_eq!(proof.non_membership_leaf_root(b"carol"), root);
+
+// Non-membership at an index position.
+let proof = tree.get_indexed_opening("ns", root, &99u64.to_le_bytes()).unwrap();
+assert_eq!(proof.non_membership_leaf_indexed_root(&99u64.to_le_bytes()).unwrap(), root);
 ```
 
-Traversal directions are derived from the key at verification time — never stored
-in the proof — so the proof cannot be forged by manipulating direction bits.
+Traversal directions are derived from the key at verification time — never
+stored in the proof — so the proof cannot be forged by manipulating direction
+bits.
+
+### Path containment
+
+`MerkleOpening::contains` checks whether one proof's path is a suffix of
+another's — useful for verifying that a leaf proof lives inside a known
+sub-tree proof:
+
+```rust
+use merkl::{Hash, MerkleOpening};
+// A deeper proof contains a shallower proof when their root-aligned
+// siblings match.
+let deep: MerkleOpening<()> = MerkleOpening::new(vec![[1u8;32], [2u8;32]], [0u8;32]);
+let shallow: MerkleOpening<()> = MerkleOpening::new(vec![[2u8;32]], [0u8;32]);
+assert!(deep.contains(&shallow));
+```
 
 ## Implementing `KvsBackend`
 
@@ -172,6 +230,7 @@ The `KvsBackend` trait is the only integration point:
 use merkl::KvsBackend;
 use anyhow::Result;
 
+#[derive(Clone)]
 struct MyBackend { /* … */ }
 
 impl KvsBackend for MyBackend {
