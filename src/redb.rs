@@ -39,6 +39,7 @@ fn composite_key(ns: &str, key: &[u8]) -> Vec<u8> {
 ///
 /// All namespaces are stored in a single redb table using length-prefixed
 /// composite keys (`[ns_len: u32 LE][ns bytes][key bytes]`).
+#[derive(Clone)]
 pub struct RedbBackend {
     db: Shared<Database>,
 }
@@ -63,14 +64,6 @@ impl RedbBackend {
     /// Open or create a file-backed database at `path`.
     pub fn create(path: impl AsRef<std::path::Path>) -> Result<Self> {
         Self::new(Database::create(path)?)
-    }
-}
-
-impl Clone for RedbBackend {
-    fn clone(&self) -> Self {
-        Self {
-            db: Shared::clone(&self.db),
-        }
     }
 }
 
@@ -105,7 +98,7 @@ impl KvsBackend for RedbBackend {
 ///
 /// ```rust,no_run
 /// # use merkl::{Hash, Hasher, redb::{RedbBackend, RedbMerkleTree}};
-/// # struct H; impl Hasher for H { fn hash(_: &[u8]) -> Hash { [0u8; 32] } }
+/// # #[derive(Clone)] struct H; impl Hasher for H { fn hash(_: &[u8]) -> Hash { [0u8; 32] } }
 /// let backend = RedbBackend::in_memory().unwrap();
 /// let tree: RedbMerkleTree<H> = RedbMerkleTree::new(backend);
 /// ```

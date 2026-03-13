@@ -5,6 +5,7 @@ use crate::tree::MerkleTree;
 use sha2::{Digest, Sha256};
 
 /// A [`Hasher`] implementation backed by SHA-256.
+#[derive(Clone)]
 pub struct Sha256Hasher;
 
 impl Hasher for Sha256Hasher {
